@@ -1,13 +1,16 @@
 // scripts/sara.js
+// A more natural conversational Sara with memory, continuous listening, and varied TTS
 
 // DOM elements
 const transcriptEl = document.getElementById("transcript");
 const responseEl   = document.getElementById("response");
 const statusEl     = document.getElementById("status");
 
-// State variables
-let saraIsAwake   = false;
-let lastWakeTime  = null;
+// Conversation state
+let saraIsAwake = false;
+let history = [
+  { role: "system", content: "You are a friendly, empathetic companion named Sara." }
+];
 
 // Initialize speech recognition
 let recognition;
@@ -17,116 +20,109 @@ if ('webkitSpeechRecognition' in window) {
   alert("Your browser does not support speech recognition. Please use Chrome.");
 }
 recognition.continuous     = true;
-recognition.interimResults = true;
+recognition.interimResults = false;
 recognition.lang           = 'de-DE';
 
 recognition.onstart = () => {
-  statusEl.textContent = "Status: Sara is listening...";
+  statusEl.textContent = saraIsAwake
+    ? "Status: Sara is listening..."
+    : "Status: Say 'Sara' to start the conversation.";
 };
 recognition.onerror = event => console.error(event);
 
-// Handle results with wake/sleep logic and threshold filtering
 recognition.onresult = async (event) => {
+  // Gather final transcript
   let finalTranscript = '';
   for (let i = event.resultIndex; i < event.results.length; i++) {
-    const transcript = event.results[i][0].transcript;
     if (event.results[i].isFinal) {
-      finalTranscript += transcript;
+      finalTranscript += event.results[i][0].transcript;
     }
   }
   finalTranscript = finalTranscript.trim();
-  const userInput = finalTranscript.toLowerCase();
+  if (!finalTranscript) return;
   transcriptEl.textContent = finalTranscript;
 
-  // Ignore empty transcripts
-  if (!finalTranscript) {
-    console.log("Ignored: empty transcript");
-    return;
-  }
+  const userInput = finalTranscript.toLowerCase();
 
-  // Wake word: "sara"
-  if (userInput.includes("sara") && !saraIsAwake) {
+  // One-time wake-up: user says 'sara'
+  if (!saraIsAwake && userInput.includes("sara")) {
     saraIsAwake = true;
-    lastWakeTime = performance.now();
     statusEl.textContent = "Status: Sara is now active";
-    // Temporarily pause recognition to avoid capturing TTS
-    recognition.stop();
-    const reply = await frageSara(finalTranscript);
-    responseEl.textContent = reply;
-    sprich(reply);
-    // Reset wake time and resume listening
-    lastWakeTime = performance.now();
-    recognition.start();
+    await respond(finalTranscript);
     return;
   }
 
-  // Sleep word: "danke sara"
-  if (userInput.includes("danke sara") && saraIsAwake) {
-    saraIsAwake = false;
-    statusEl.textContent = "Status: Sara is sleeping";
-    recognition.stop();
-    const reply = "Gern geschehen!";
-    responseEl.textContent = reply;
-    sprich(reply);
-    return;
-  }
-
-  // If Sara is awake, apply threshold filter
+  // If Sara is awake, respond continuously
   if (saraIsAwake) {
-    // Validate speech parameters (thresholds.js must define isValidSpeech)
-    if (isValidSpeech(finalTranscript, lastWakeTime)) {
-      recognition.stop();
-      const reply = await frageSara(finalTranscript);
-      responseEl.textContent = reply;
-      sprich(reply);
-      // reset timestamp for next utterance
-      lastWakeTime = performance.now();
-      recognition.start();
-    } else {
-      console.log(`Ignored transcript: "${finalTranscript}"`);
-      statusEl.textContent = "Status: Input ignored (noise or out-of-range)";
-    }
+    await respond(finalTranscript);
   }
 };
 
-// Controls
-function startListening() {
-  recognition.start();
-}
-function stopListening() {
-  if (recognition) {
-    recognition.stop();
-    statusEl.textContent = "Status: Listening stopped";
-  }
-}
-// Stop Sara speaking mid-utterance
-function stopSpeaking() {
-  window.speechSynthesis.cancel();
-  statusEl.textContent = "Status: Sara silenced";
-}
+// Handle a conversation turn: send user + history to GPT, speak response, then resume listening
+async function respond(text) {
+  recognition.stop();
 
-// GPT API call
-async function frageSara(text) {
+  // Add user message to history
+  history.push({ role: "user", content: text });
+
+  // Indicate thinking
+  statusEl.textContent = "Status: Sara is thinking...";
+
+  // Random pre-speech delay + filler
+  await sleep(200 + Math.random() * 800);
+  const fillers = ["Hmm...", "Mal schauen..", "Okay..."];
+  const prefix = fillers[Math.floor(Math.random() * fillers.length)];
+
+  // Fetch GPT response with full history
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${OPENAI_API_KEY}`
     },
-    body: JSON.stringify({ model: "gpt-4", messages: [{ role: "user", content: text }] })
+    body: JSON.stringify({ model: "gpt-3.5-turbo", messages: history })
   });
   const data = await res.json();
-  return data.choices[0].message.content;
+  const gptMessage = data.choices[0].message;
+
+  // Add Sara's reply to history
+  history.push(gptMessage);
+  const reply = gptMessage.content.trim();
+  responseEl.textContent = reply;
+
+  // Speak with varied rate & pitch
+  const utterance = new SpeechSynthesisUtterance(prefix + ' ' + reply);
+  utterance.lang = 'de-DE';
+  utterance.rate  = 0.9 + Math.random() * 0.2;
+  utterance.pitch = 0.8 + Math.random() * 0.4;
+  window.speechSynthesis.speak(utterance);
+
+  // When done speaking, resume recognition
+  utterance.onend = () => {
+    statusEl.textContent = "Status: Sara is listening...";
+    recognition.start();
+  };
 }
 
-// Text-to-speech
-function sprich(text) {
-  const synth = window.speechSynthesis;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'de-DE';
-  synth.speak(u);
+// Utility: pause for ms
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Expose controls
-window.startListening = startListening;
-window.stopListening = stopListening;
+// Controls for buttons
+function startListening() {
+  recognition.start();
+}
+function stopListening() {
+  recognition.stop();
+  statusEl.textContent = "Status: Listening stopped.";
+}
+function stopSpeaking() {
+  window.speechSynthesis.cancel();
+  statusEl.textContent = "Status: Sara silenced.";
+}
+
+// Expose functions to global scope
+window.startListening  = startListening;
+window.stopListening   = stopListening;
+window.stopSpeaking    = stopSpeaking;
