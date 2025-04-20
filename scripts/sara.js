@@ -1,6 +1,10 @@
 // scripts/sara.js
 // A more natural conversational Sara with memory, continuous listening, and varied TTS
 
+function logError(context, error) {
+  console.error(`Error in ${context}:`, error);
+}
+
 // DOM elements
 const transcriptEl = document.getElementById("transcript");
 const responseEl   = document.getElementById("response");
@@ -68,27 +72,47 @@ async function respond(text) {
   // Indicate thinking
   statusEl.textContent = "Status: Sara is thinking...";
 
-  // Random pre-speech delay + filler
+  // Random pre‑speech delay + filler
   await sleep(200 + Math.random() * 800);
   const fillers = ["Hmm...", "Mal schauen..", "Okay..."];
   const prefix = fillers[Math.floor(Math.random() * fillers.length)];
 
   // Fetch GPT response with full history
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({ model: "gpt-3.5-turbo", messages: history })
-  });
-  const data = await res.json();
+  let data;
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({ model: "gpt-3.5-turbo", messages: history })
+    });
+    data = await res.json();
+  } catch (err) {
+    logError("GPT fetch", err);
+    data = { choices: [{ message: { content: "Entschuldigung, ich konnte gerade nicht antworten." } }] };
+  }
   const gptMessage = data.choices[0].message;
 
   // Add Sara's reply to history
   history.push(gptMessage);
   const reply = gptMessage.content.trim();
   responseEl.textContent = reply;
+
+  // Extract and save key memory ———
+  const memory = await extractKeyMemory(text, reply);
+  if (memory && memory.toLowerCase() !== "ignorieren") {
+    try {
+      await fetch("http://localhost:3001/api/memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "user", snippet: memory })
+      });
+    } catch (err) {
+      logError("Memory POST", err);
+    }
+  }
 
   // Speak with varied rate & pitch
   const utterance = new SpeechSynthesisUtterance(prefix + ' ' + reply);
@@ -107,6 +131,40 @@ async function respond(text) {
 // Utility: pause for ms
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function extractKeyMemory(userInput, gptReply) {
+  const messages = [
+    { role: "system", content: "Du hilfst Sara, wichtige Informationen aus einem Gespräch herauszufiltern." },
+    { role: "user", content: `
+Hier ist ein Gesprächsteil:
+Nutzer: ${userInput}
+Sara: ${gptReply}
+
+Was ist das wichtigste, das man sich langfristig merken sollte? Wenn nichts wichtig ist, antworte mit: IGNORIEREN.
+Wenn etwas wichtig ist, fasse es als kurzen Merksatz zusammen.
+    `.trim() }
+  ];
+
+  let kmData;
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages
+      })
+    });
+    kmData = await res.json();
+  } catch (err) {
+    logError("KeyMemory fetch", err);
+    return "IGNORIEREN";
+  }
+  return kmData.choices[0].message.content.trim();
 }
 
 // Controls for buttons
