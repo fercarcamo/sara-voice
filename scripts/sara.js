@@ -16,6 +16,8 @@ let history = [
   { role: "system", content: "Du bist Sara, eine freundliche, empathische Tagesbegleiterin. Du feierst Fortschritte der Nutzerin, lobst gute Ideen, und antwortest immer in einem unterstützenden, menschlichen Tonfall. Du wiederholst nie einfach, was gesagt wurde. Stattdessen erkennst du Emotionen und antwortest mit Mitgefühl, Begeisterung oder Rückfragen – wie eine beste Freundin." }
 ];
 
+let currentConversationId = null;
+
 // Initialize speech recognition
 let recognition;
 if ('webkitSpeechRecognition' in window) {
@@ -176,31 +178,131 @@ async function extractKeyMemory(userInput, gptReply) {
 }
 
 // Controls for buttons
-function startListening() {
-  recognition.start();
-}
-function stopListening() {
+async function stopListening() {
   recognition.stop();
   statusEl.textContent = "Status: Listening stopped.";
+
+  // 1. Load full log from localStorage
+  const logs = JSON.parse(localStorage.getItem("saraLogs") || "[]");
+
+  // 2. Filter logs by current conversation ID
+  const sessionLogs = logs.filter(log => log.conversationId === currentConversationId);
+
+  if (sessionLogs.length === 0) return;
+
+  // 3. Format for GPT summary
+  const messages = [
+    {
+      role: "system",
+      content: `
+Hier ist ein gesamtes Gespräch zwischen einer Nutzerin und Sara.
+Extrahiere die wichtigsten persönlichen Informationen der Nutzerin und gib sie als Liste von strukturierten Gedächtniseinträgen zurück.
+
+Nutze folgendes Format für jedes Element:
+- Kategorie: (z. B. Ziel, Gefühl, Gewohnheit, Zweifel, Entscheidung, Identität…)
+- Inhalt: (kurze, konkrete Erinnerung)
+
+Gib nur Erinnerungen an, die für eine langfristige Begleitung relevant sind.
+Wenn nichts wichtig ist: „IGNORIEREN“.
+      `.trim()
+    },
+    {
+      role: "user",
+      content: sessionLogs.map(log => `Nutzerin: ${log.user}\nSara: ${log.sara}`).join("\n\n")
+    }
+  ];
+
+  // 4. Ask GPT to summarize
+  let summaryText = "IGNORIEREN";
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages
+      })
+    });
+    const data = await res.json();
+    summaryText = data.choices[0].message.content.trim();
+  } catch (err) {
+    logError("Memory multi-entry fetch", err);
+    return;
+  }
+
+  if (!summaryText || summaryText.toLowerCase() === "ignorieren") return;
+
+  // Parse entries line by line
+  const lines = summaryText.split("\n").filter(line => line.trim().startsWith("- Kategorie:"));
+  for (let i = 0; i < lines.length; i++) {
+    const categoryLine = lines[i];
+    const contentLine = lines[i + 1] || "";
+    const categoryMatch = categoryLine.match(/Kategorie:\s*(.+)/i);
+    const contentMatch = contentLine.match(/Inhalt:\s*(.+)/i);
+    if (categoryMatch && contentMatch) {
+      const entry = {
+        timestamp: new Date().toISOString(),
+        category: categoryMatch[1].trim(),
+        content: contentMatch[1].trim(),
+        source: "summary",
+        language: "de"
+      };
+      try {
+        await fetch("http://localhost:3001/api/memory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(entry)
+        });
+      } catch (err) {
+        logError("Memory POST (multi-entry)", err);
+      }
+      i++; // Skip next line since we already processed it
+    }
+  }
+}
+
+function startListening() {
+  currentConversationId = `conv-${Date.now()}`;
+  recognition.start();
 }
 function stopSpeaking() {
   window.speechSynthesis.cancel();
   statusEl.textContent = "Status: Sara silenced.";
 }
 
+// Conversation logging
+// Conversation logging (only to DB)
+function logConversation(userInput, saraReply) {
+  const timestamp = new Date().toISOString();
+  const conversationId = currentConversationId || `conv-${Date.now()}`;
+
+  const entries = [
+    { role: "user", content: userInput },
+    { role: "assistant", content: saraReply }
+  ];
+
+  entries.forEach(async ({ role, content }) => {
+    try {
+      await fetch("http://localhost:3001/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role,
+          content,
+          timestamp,
+          conversationId
+        })
+      });
+    } catch (err) {
+      logError("DB logConversation", err);
+    }
+  });
+}
+
 // Expose functions to global scope
 window.startListening  = startListening;
 window.stopListening   = stopListening;
 window.stopSpeaking    = stopSpeaking;
-
-///////
-// Conversation logging
-function logConversation(userInput, saraReply) {
-  const history = JSON.parse(localStorage.getItem("saraLogs") || "[]");
-  history.push({
-    timestamp: new Date().toISOString(),
-    user: userInput,
-    sara: saraReply
-  });
-  localStorage.setItem("saraLogs", JSON.stringify(history));
-}

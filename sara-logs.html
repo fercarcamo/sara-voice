@@ -2,90 +2,106 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Sara Logs</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sara Conversation Logs</title>
   <style>
     body {
       font-family: sans-serif;
-      max-width: 800px;
-      margin: 2rem auto;
+      padding: 2rem;
+      background: #fdfdfd;
+      color: #333;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
     }
     table {
       width: 100%;
       border-collapse: collapse;
+      margin-bottom: 1rem;
     }
     th, td {
-      border: 1px solid #ddd;
-      padding: 8px;
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      vertical-align: top;
     }
     th {
-      background: #f4f4f4;
+      background: #eee;
       text-align: left;
     }
-    .delete-button {
-      background-color: #e74c3c;
-      color: white;
-      border: none;
-      padding: 5px 10px;
-      border-radius: 4px;
-      cursor: pointer;
+    .role-user {
+      color: #2c3e50;
     }
-    .delete-all-button {
-      margin-bottom: 1rem;
-      background-color: #e74c3c;
+    .role-assistant {
+      color: #8e44ad;
+    }
+    button {
+      padding: 0.4rem 0.8rem;
+      cursor: pointer;
+      background: #e74c3c;
       color: white;
       border: none;
-      padding: 8px 12px;
       border-radius: 4px;
-      cursor: pointer;
+    }
+    button:hover {
+      background: #c0392b;
     }
   </style>
 </head>
 <body>
-  <h1>Sara Conversation Logs</h1>
-  <button class="delete-all-button" onclick="deleteAllLogs()">🗑️ Delete All Logs</button>
-  <table>
+  <h1>🪵 Sara Conversation Logs</h1>
+  <p>All interactions per session, for debugging purposes.</p>
+
+  <table id="logTable">
     <thead>
       <tr>
-        <th>Timestamp</th>
-        <th>User</th>
-        <th>Sara</th>
+        <th>#</th>
+        <th>When</th>
+        <th>Session</th>
+        <th>Role</th>
+        <th>Message</th>
         <th>Action</th>
       </tr>
     </thead>
-    <tbody id="logTable">
-    </tbody>
+    <tbody></tbody>
   </table>
 
+  <button onclick="deleteAll()">🗑️ Delete All</button>
+
   <script>
-    const table = document.getElementById("logTable");
-
-    function renderLogs() {
-      const logs = JSON.parse(localStorage.getItem("saraLogs") || "[]");
-      table.innerHTML = logs.map((log, i) => `
-        <tr>
-          <td>${new Date(log.timestamp).toLocaleString()}</td>
-          <td>${log.user}</td>
-          <td>${log.sara}</td>
-          <td><button class="delete-button" onclick="deleteLog(${i})">Delete</button></td>
-        </tr>
-      `).join("");
+    async function loadLogs() {
+      const res = await fetch("http://localhost:3001/api/logs");
+      const data = await res.json();
+      const tbody = document.querySelector("#logTable tbody");
+      tbody.innerHTML = "";
+      data.forEach((entry, i) => {
+        const row = document.createElement("tr");
+        const timestamp = new Date(entry.timestamp).toLocaleString();
+        row.innerHTML = `
+          <td>${i + 1}</td>
+          <td>${timestamp}</td>
+          <td>${entry.conversationId}</td>
+          <td class="role-${entry.role}">${entry.role}</td>
+          <td>${entry.content}</td>
+          <td><button onclick="deleteOne(${entry.id})">❌</button></td>
+        `;
+        tbody.appendChild(row);
+      });
     }
 
-    function deleteLog(index) {
-      const logs = JSON.parse(localStorage.getItem("saraLogs") || "[]");
-      logs.splice(index, 1);
-      localStorage.setItem("saraLogs", JSON.stringify(logs));
-      renderLogs();
+    async function deleteOne(id) {
+      await fetch(`http://localhost:3001/api/logs/${id}`, { method: "DELETE" });
+      loadLogs();
     }
 
-    function deleteAllLogs() {
-      if (confirm("Are you sure you want to delete all conversation logs?")) {
-        localStorage.removeItem("saraLogs");
-        renderLogs();
+    async function deleteAll() {
+      if (confirm("Delete all conversation logs?")) {
+        await fetch("http://localhost:3001/api/logs", { method: "DELETE" });
+        loadLogs();
       }
     }
 
-    renderLogs();
+    loadLogs();
   </script>
 </body>
 </html>
