@@ -72,11 +72,6 @@ async function respond(text) {
   // Indicate thinking
   statusEl.textContent = "Status: Sara is thinking...";
 
-  // Random pre‑speech delay + filler
-  await sleep(200 + Math.random() * 800);
-  const fillers = ["Hmm...", "Mal schauen..", "Okay..."];
-  const prefix = fillers[Math.floor(Math.random() * fillers.length)];
-
   // Fetch GPT response with full history
   let data;
   try {
@@ -115,11 +110,13 @@ async function respond(text) {
   }
 
   // Speak with varied rate & pitch
-  const utterance = new SpeechSynthesisUtterance(prefix + ' ' + reply);
+  const utterance = new SpeechSynthesisUtterance(reply);
   utterance.lang = 'de-DE';
   utterance.rate  = 0.9 + Math.random() * 0.2;
   utterance.pitch = 0.8 + Math.random() * 0.4;
   window.speechSynthesis.speak(utterance);
+
+  logConversation(text, reply);
 
   // When done speaking, resume recognition
   utterance.onend = () => {
@@ -135,16 +132,27 @@ function sleep(ms) {
 
 async function extractKeyMemory(userInput, gptReply) {
   const messages = [
-    { role: "system", content: "Du hilfst Sara, wichtige Informationen aus einem Gespräch herauszufiltern." },
-    { role: "user", content: `
-Hier ist ein Gesprächsteil:
-Nutzer: ${userInput}
-Sara: ${gptReply}
-
-Was ist das wichtigste, das man sich langfristig merken sollte? Wenn nichts wichtig ist, antworte mit: IGNORIEREN.
-Wenn etwas wichtig ist, fasse es als kurzen Merksatz zusammen.
-    `.trim() }
-  ];
+    {
+      role: "system",
+      content: `
+  Du bist Sara, eine freundliche und empathische Tagesbegleiterin. 
+  Deine Aufgabe ist es, ausschließlich aus der Aussage der Nutzerin wichtige Informationen zu extrahieren – also persönliche Gedanken, Wünsche, Fakten, Stimmungen. 
+  Ignoriere deinen eigenen Beitrag vollständig. 
+  Wenn die Nutzerin nichts Persönliches oder Wichtiges gesagt hat, antworte mit: IGNORIEREN. 
+  Die Zusammenfassung soll kurz, präzise und auf Deutsch sein.
+      `.trim()
+    },
+    {
+      role: "user",
+      content: `
+  Nutzerin: ${userInput}
+  Sara: ${gptReply}
+  
+  Was ist die wichtigste Information, die man sich langfristig merken sollte?
+  Wenn keine, schreibe einfach: IGNORIEREN.
+      `.trim()
+    }
+  ];;
 
   let kmData;
   try {
@@ -185,3 +193,14 @@ window.startListening  = startListening;
 window.stopListening   = stopListening;
 window.stopSpeaking    = stopSpeaking;
 
+///////
+// Conversation logging
+function logConversation(userInput, saraReply) {
+  const history = JSON.parse(localStorage.getItem("saraLogs") || "[]");
+  history.push({
+    timestamp: new Date().toISOString(),
+    user: userInput,
+    sara: saraReply
+  });
+  localStorage.setItem("saraLogs", JSON.stringify(history));
+}

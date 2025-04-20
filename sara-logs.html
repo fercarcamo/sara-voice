@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sara Logs</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+    }
+    th {
+      background: #f4f4f4;
+      text-align: left;
+    }
+    .delete-button {
+      background-color: #e74c3c;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .delete-all-button {
+      margin-bottom: 1rem;
+      background-color: #e74c3c;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Sara Conversation Logs</h1>
+  <button class="delete-all-button" onclick="deleteAllLogs()">🗑️ Delete All Logs</button>
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>User</th>
+        <th>Sara</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="logTable">
+    </tbody>
+  </table>
+
+  <script>
+    const table = document.getElementById("logTable");
+
+    function renderLogs() {
+      const logs = JSON.parse(localStorage.getItem("saraLogs") || "[]");
+      table.innerHTML = logs.map((log, i) => `
+        <tr>
+          <td>${new Date(log.timestamp).toLocaleString()}</td>
+          <td>${log.user}</td>
+          <td>${log.sara}</td>
+          <td><button class="delete-button" onclick="deleteLog(${i})">Delete</button></td>
+        </tr>
+      `).join("");
+    }
+
+    function deleteLog(index) {
+      const logs = JSON.parse(localStorage.getItem("saraLogs") || "[]");
+      logs.splice(index, 1);
+      localStorage.setItem("saraLogs", JSON.stringify(logs));
+      renderLogs();
+    }
+
+    function deleteAllLogs() {
+      if (confirm("Are you sure you want to delete all conversation logs?")) {
+        localStorage.removeItem("saraLogs");
+        renderLogs();
+      }
+    }
+
+    renderLogs();
+  </script>
+</body>
+</html>
