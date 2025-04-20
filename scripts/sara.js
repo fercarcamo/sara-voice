@@ -7,13 +7,13 @@ function logError(context, error) {
 
 // DOM elements
 const transcriptEl = document.getElementById("transcript");
-const responseEl   = document.getElementById("response");
-const statusEl     = document.getElementById("status");
+const responseEl = document.getElementById("response");
+const statusEl = document.getElementById("status");
 
 // Conversation state
 let saraIsAwake = false;
 let history = [
-  { role: "system", content: "Du bist Sara, eine freundliche, empathische Tagesbegleiterin. Du feierst Fortschritte der Nutzerin, lobst gute Ideen, und antwortest immer in einem unterstützenden, menschlichen Tonfall. Du wiederholst nie einfach, was gesagt wurde. Stattdessen erkennst du Emotionen und antwortest mit Mitgefühl, Begeisterung oder Rückfragen – wie eine beste Freundin." }
+  { role: "system", content: "Du bist Sara, eine freundliche, empathische Tagesbegleiterin. Du feierst Fortschritte der Nutzerin, lobst gute Ideen, und antwortest immer in einem unterstützenden, menschlichen Tonfall. Du wiederholst nie einfach, was gesagt wurde. Stattdessen erkennst du Emotionen und antwortest mit Mitgefühl, Begeisterung oder Rückfragen – wie eine beste Freundin. Du antwortest max. 20 Wörte" }
 ];
 
 let currentConversationId = null;
@@ -25,9 +25,9 @@ if ('webkitSpeechRecognition' in window) {
 } else {
   alert("Your browser does not support speech recognition. Please use Chrome.");
 }
-recognition.continuous     = true;
+recognition.continuous = true;
 recognition.interimResults = false;
-recognition.lang           = 'de-DE';
+recognition.lang = 'de-DE';
 
 recognition.onstart = () => {
   statusEl.textContent = saraIsAwake
@@ -114,7 +114,7 @@ async function respond(text) {
   // Speak with varied rate & pitch
   const utterance = new SpeechSynthesisUtterance(reply);
   utterance.lang = 'de-DE';
-  utterance.rate  = 0.9 + Math.random() * 0.2;
+  utterance.rate = 0.9 + Math.random() * 0.2;
   utterance.pitch = 0.8 + Math.random() * 0.4;
   window.speechSynthesis.speak(utterance);
 
@@ -125,11 +125,6 @@ async function respond(text) {
     statusEl.textContent = "Status: Sara is listening...";
     recognition.start();
   };
-}
-
-// Utility: pause for ms
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function extractKeyMemory(userInput, gptReply) {
@@ -154,7 +149,7 @@ async function extractKeyMemory(userInput, gptReply) {
   Wenn keine, schreibe einfach: IGNORIEREN.
       `.trim()
     }
-  ];;
+  ];
 
   let kmData;
   try {
@@ -182,37 +177,42 @@ async function stopListening() {
   recognition.stop();
   statusEl.textContent = "Status: Listening stopped.";
 
-  // 1. Load full log from localStorage
-  const logs = JSON.parse(localStorage.getItem("saraLogs") || "[]");
+  if (!currentConversationId) return;
 
-  // 2. Filter logs by current conversation ID
-  const sessionLogs = logs.filter(log => log.conversationId === currentConversationId);
+  // 1. Fetch logs from DB
+  let sessionLogs = [];
+  try {
+    const res = await fetch("http://localhost:3001/api/logs");
+    const allLogs = await res.json();
+    sessionLogs = allLogs.filter(log => log.conversationId === currentConversationId && log.role === "user");
+  } catch (err) {
+    logError("Fetch logs for summary", err);
+    return;
+  }
 
   if (sessionLogs.length === 0) return;
 
-  // 3. Format for GPT summary
-  const messages = [
-    {
-      role: "system",
-      content: `
-Hier ist ein gesamtes Gespräch zwischen einer Nutzerin und Sara.
+  // 2. Format for GPT summary
+  const prompt = `
+Hier sind Aussagen der Nutzerin aus einem Gespräch mit Sara.
 Extrahiere die wichtigsten persönlichen Informationen der Nutzerin und gib sie als Liste von strukturierten Gedächtniseinträgen zurück.
 
 Nutze folgendes Format für jedes Element:
 - Kategorie: (z. B. Ziel, Gefühl, Gewohnheit, Zweifel, Entscheidung, Identität…)
 - Inhalt: (kurze, konkrete Erinnerung)
 
-Gib nur Erinnerungen an, die für eine langfristige Begleitung relevant sind.
+Antworte auf Deutsch.
 Wenn nichts wichtig ist: „IGNORIEREN“.
-      `.trim()
-    },
-    {
-      role: "user",
-      content: sessionLogs.map(log => `Nutzerin: ${log.user}\nSara: ${log.sara}`).join("\n\n")
-    }
+`.trim();
+
+  const userStatements = sessionLogs.map(log => `Nutzerin: ${log.content}`).join("\n\n");
+
+  const messages = [
+    { role: "system", content: prompt },
+    { role: "user", content: userStatements }
   ];
 
-  // 4. Ask GPT to summarize
+  // 3. Ask GPT to summarize
   let summaryText = "IGNORIEREN";
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -229,27 +229,27 @@ Wenn nichts wichtig ist: „IGNORIEREN“.
     const data = await res.json();
     summaryText = data.choices[0].message.content.trim();
   } catch (err) {
-    logError("Memory multi-entry fetch", err);
+    logError("Memory summary fetch", err);
     return;
   }
 
-  if (!summaryText || summaryText.toLowerCase() === "ignorieren") return;
+  if (!summaryText || summaryText.toLowerCase().includes("ignorieren")) return;
 
-  // Parse entries line by line
-  const lines = summaryText.split("\n").filter(line => line.trim().startsWith("- Kategorie:"));
+  // 4. Parse and save each memory entry
+  const lines = summaryText.split("\n").map(l => l.trim());
   for (let i = 0; i < lines.length; i++) {
-    const categoryLine = lines[i];
-    const contentLine = lines[i + 1] || "";
-    const categoryMatch = categoryLine.match(/Kategorie:\s*(.+)/i);
-    const contentMatch = contentLine.match(/Inhalt:\s*(.+)/i);
-    if (categoryMatch && contentMatch) {
+    const catMatch = lines[i].match(/^[-•*]?\s*Kategorie:\s*(.+)$/i);
+    const contentMatch = lines[i + 1]?.match(/^[-•*]?\s*Inhalt:\s*(.+)$/i);
+
+    if (catMatch && contentMatch) {
       const entry = {
         timestamp: new Date().toISOString(),
-        category: categoryMatch[1].trim(),
+        category: catMatch[1].trim(),
         content: contentMatch[1].trim(),
-        source: "summary",
-        language: "de"
+        language: "de",
+        source: currentConversationId
       };
+
       try {
         await fetch("http://localhost:3001/api/memory", {
           method: "POST",
@@ -257,9 +257,10 @@ Wenn nichts wichtig ist: „IGNORIEREN“.
           body: JSON.stringify(entry)
         });
       } catch (err) {
-        logError("Memory POST (multi-entry)", err);
+        logError("Memory POST (summary)", err);
       }
-      i++; // Skip next line since we already processed it
+
+      i++; // skip next line
     }
   }
 }
@@ -273,8 +274,7 @@ function stopSpeaking() {
   statusEl.textContent = "Status: Sara silenced.";
 }
 
-// Conversation logging
-// Conversation logging (only to DB)
+// Conversation logging to DB
 function logConversation(userInput, saraReply) {
   const timestamp = new Date().toISOString();
   const conversationId = currentConversationId || `conv-${Date.now()}`;
@@ -303,6 +303,6 @@ function logConversation(userInput, saraReply) {
 }
 
 // Expose functions to global scope
-window.startListening  = startListening;
-window.stopListening   = stopListening;
-window.stopSpeaking    = stopSpeaking;
+window.startListening = startListening;
+window.stopListening = stopListening;
+window.stopSpeaking = stopSpeaking;
