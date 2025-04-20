@@ -13,7 +13,7 @@ const statusEl     = document.getElementById("status");
 // Conversation state
 let saraIsAwake = false;
 let history = [
-  { role: "system", content: "You are a friendly, empathetic companion named Sara." }
+  { role: "system", content: "Du bist Sara, eine freundliche, empathische Tagesbegleiterin. Du feierst Fortschritte der Nutzerin, lobst gute Ideen, und antwortest immer in einem unterstützenden, menschlichen Tonfall. Du wiederholst nie einfach, was gesagt wurde. Stattdessen erkennst du Emotionen und antwortest mit Mitgefühl, Begeisterung oder Rückfragen – wie eine beste Freundin." }
 ];
 
 // Initialize speech recognition
@@ -184,3 +184,4 @@ function stopSpeaking() {
 window.startListening  = startListening;
 window.stopListening   = stopListening;
 window.stopSpeaking    = stopSpeaking;
+
