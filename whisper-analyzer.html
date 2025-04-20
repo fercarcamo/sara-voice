@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Whisper Speech Analyzer</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    h1 { color: #333; }
+    label, select, button { font-size: 1rem; margin: 0.5rem 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: center; }
+    th { background-color: #f0f0f0; }
+    .stats { margin-top: 1rem; }
+    .delete-btn { background: #e74c3c; color: white; border: none; padding: 0.3rem 0.6rem; cursor: pointer; border-radius: 0.3rem; }
+    .delete-btn:hover { background: #c0392b; }
+  </style>
+</head>
+<body>
+  <h1>Whisper Speech Analyzer</h1>
+  <label for="languageSelect">Select Language for Test:</label>
+  <select id="languageSelect">
+    <option value="en">English</option>
+    <option value="de">German</option>
+    <option value="es">Spanish</option>
+  </select>
+  <br>
+  <button id="startBtn">Start Recording</button>
+  <button id="stopBtn" disabled>Stop & Transcribe</button>
+  <button id="downloadBtn" disabled>Download Results</button>
+
+  <table id="resultsTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Timestamp</th>
+        <th>Language</th>
+        <th>Duration (s)</th>
+        <th>Word Count</th>
+        <th>Words/sec</th>
+        <th>Transcript</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="stats" id="averageStats">
+    <h2>Average Stats by Language</h2>
+    <ul id="avgList"></ul>
+  </div>
+
+  <script src="config.js"></script>
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const langSelect = document.getElementById('languageSelect');
+    const resultsTableBody = document.querySelector('#resultsTable tbody');
+    const avgList = document.getElementById('avgList');
+
+    let mediaRecorder, audioChunks = [];
+    let tests = JSON.parse(localStorage.getItem('tests') || '[]');
+    let startTime;
+    let count = tests.length ? Math.max(...tests.map(t => t.id)) : 0;
+
+    // Initialize UI based on stored data
+    if (tests.length) {
+      updateTable();
+      updateAverages();
+      downloadBtn.disabled = false;
+    }
+
+    startBtn.onclick = async () => {
+      audioChunks = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.start();
+      startTime = performance.now();
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+    };
+
+    stopBtn.onclick = () => {
+      mediaRecorder.onstop = async () => {
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'audio.webm');
+        formData.append('model', 'whisper-1');
+        formData.append('language', langSelect.value);
+
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+          body: formData
+        });
+        const data = await response.json();
+        const transcript = data.text || '';
+        const wordCount = transcript.trim().split(/\s+/).filter(w => w).length;
+        const wps = (wordCount / duration).toFixed(2);
+        const timestamp = new Date().toLocaleString();
+        count++;
+
+        tests.push({
+          id: count,
+          timestamp,
+          language: langSelect.value,
+          duration: parseFloat(duration),
+          wordCount,
+          wps: parseFloat(wps),
+          transcript
+        });
+
+        saveTests();
+        updateTable();
+        updateAverages();
+
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        downloadBtn.disabled = false;
+      };
+      mediaRecorder.stop();
+    };
+
+    function updateTable() {
+      resultsTableBody.innerHTML = '';
+      tests.forEach(test => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${test.id}</td>
+          <td>${test.timestamp}</td>
+          <td>${test.language.toUpperCase()}</td>
+          <td>${test.duration}</td>
+          <td>${test.wordCount}</td>
+          <td>${test.wps}</td>
+          <td>${test.transcript}</td>
+          <td><button class="delete-btn" data-id="${test.id}">Delete</button></td>
+        `;
+        resultsTableBody.appendChild(row);
+      });
+      document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.onclick = () => {
+          const id = parseInt(btn.getAttribute('data-id'));
+          tests = tests.filter(t => t.id !== id);
+          saveTests();
+          updateTable();
+          updateAverages();
+          downloadBtn.disabled = tests.length === 0;
+        };
+      });
+    }
+
+    function updateAverages() {
+      const groups = {};
+      tests.forEach(t => {
+        if (!groups[t.language]) groups[t.language] = [];
+        groups[t.language].push(t);
+      });
+      avgList.innerHTML = '';
+      for (const [lang, arr] of Object.entries(groups)) {
+        const avgDuration = (arr.reduce((sum, t) => sum + t.duration, 0) / arr.length).toFixed(2);
+        const avgWords = (arr.reduce((sum, t) => sum + t.wordCount, 0) / arr.length).toFixed(2);
+        const avgWps = (arr.reduce((sum, t) => sum + t.wps, 0) / arr.length).toFixed(2);
+        const li = document.createElement('li');
+        li.textContent = `${lang.toUpperCase()}: Avg. duration ${avgDuration}s, words ${avgWords}, speed ${avgWps} w/s`;
+        avgList.appendChild(li);
+      }
+    }
+
+    function saveTests() {
+      localStorage.setItem('tests', JSON.stringify(tests));
+    }
+
+    downloadBtn.onclick = () => {
+      const blob = new Blob([JSON.stringify(tests, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'whisper-test-results.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+  </script>
+</body>
+</html>

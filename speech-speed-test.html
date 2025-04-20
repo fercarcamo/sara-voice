@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Speech Speed Test</title>
+</head>
+<body>
+  <h1>🎤 Speech Recognition Speed Test</h1>
+  <p>Click the button, say something short, and wait for the result.</p>
+  <button onclick="startTest()">Start Listening</button>
+  <p><strong>Transcript:</strong> <span id="transcript"></span></p>
+  <p><strong>Latency:</strong> <span id="latency"></span></p>
+
+  <script>
+    const transcriptEl = document.getElementById("transcript");
+    const latencyEl = document.getElementById("latency");
+    let recognition;
+    let startTime;
+
+    if ('webkitSpeechRecognition' in window) {
+      recognition = new webkitSpeechRecognition();
+    } else {
+      alert("Browser not supported – please use Chrome!");
+    }
+
+    recognition.lang = 'de-DE';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    function startTest() {
+      transcriptEl.textContent = "";
+      latencyEl.textContent = "...";
+
+      startTime = performance.now();
+      recognition.start();
+    }
+
+    recognition.onresult = (event) => {
+      const endTime = performance.now();
+      const spokenText = event.results[0][0].transcript;
+      const delay = (endTime - startTime).toFixed(0);
+
+      transcriptEl.textContent = spokenText;
+      latencyEl.textContent = `${delay} ms`;
+      console.log("Spoken:", spokenText, "| Latency:", delay, "ms");
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Error:", event);
+    };
+  </script>
+</body>
+</html>
