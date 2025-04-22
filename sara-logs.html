@@ -47,11 +47,18 @@
       background: #c0392b;
     }
   </style>
+
+<script type="module">
+  import { copyLastConversationToClipboard } from "./scripts/logging.js";
+  window.copyLastConversationToClipboard = copyLastConversationToClipboard;
+</script>
+
 </head>
 <body>
   <h1>🪵 Sara Conversation Logs</h1>
   <p>All interactions per session, for debugging purposes.</p>
-
+  <button onclick="copyLastConversationToClipboard()">📋 Copy last conversation as JSON</button>
+  
   <table id="logTable">
     <thead>
       <tr>
@@ -71,16 +78,18 @@
   <script>
     async function loadLogs() {
       const res = await fetch("http://localhost:3001/api/logs");
-      const data = await res.json();
+      const logs = await res.json();
       const tbody = document.querySelector("#logTable tbody");
       tbody.innerHTML = "";
-      data.forEach((entry, i) => {
-        const row = document.createElement("tr");
+  
+      logs.forEach((entry, i) => {
         const timestamp = new Date(entry.timestamp).toLocaleString();
+        const session = entry.conversationId || "–";
+        const row = document.createElement("tr");
         row.innerHTML = `
           <td>${i + 1}</td>
           <td>${timestamp}</td>
-          <td>${entry.conversationId}</td>
+          <td>${session}</td>
           <td class="role-${entry.role}">${entry.role}</td>
           <td>${entry.content}</td>
           <td><button onclick="deleteOne(${entry.id})">❌</button></td>

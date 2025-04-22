@@ -49,12 +49,12 @@ async function main() {
   // POST a new memory
   app.post('/api/memory', async (req, res) => {
     const { role, snippet, category, source, language } = req.body;
-    if (!role || !snippet) return res.status(400).send('Missing role or snippet');
+    if (!role || !snippet || !source) return res.status(400).send('Missing role, snippet, or source');
     const ts = Date.now();
     const result = await db.run(
       `INSERT INTO memory (timestamp, role, snippet, category, source, language)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      ts, role, snippet, category ?? 'Uncategorized', source ?? 'unknown', language ?? 'de'
+      ts, role, snippet, category, source, language
     );
     res.json({ id: result.lastID, timestamp: ts, role, snippet, category, source, language });
   });

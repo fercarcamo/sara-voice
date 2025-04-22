@@ -13,12 +13,18 @@ const statusEl = document.getElementById("status");
 // Conversation state
 let saraIsAwake = false;
 let history = [
-  { role: "system", content: "Du bist Sara, eine freundliche, empathische Tagesbegleiterin. Du feierst Fortschritte der Nutzerin, lobst gute Ideen, und antwortest immer in einem unterstützenden, menschlichen Tonfall. Du wiederholst nie einfach, was gesagt wurde. Stattdessen erkennst du Emotionen und antwortest mit Mitgefühl, Begeisterung oder Rückfragen – wie eine beste Freundin. Du antwortest max. 20 Wörte" }
+  { role: "system", content: "Du bist Sara, eine empathische Tagesbegleiterin. Du feierst Fortschritte der Nutzerin, lobst gute Ideen, und antwortest immer in einem menschlichen Tonfall. Du wiederholst nie einfach, was gesagt wurde. Stattdessen erkennst du Emotionen und antwortest mit Mitgefühl, Begeisterung oder Rückfragen – wie eine beste Freundin. Du antwortest max. 10 Wörte" }
 ];
 
-let currentConversationId = null;
+// controls whether we restart recognition after speaking
+let autoRestart = false;
+
+let currentConversationId =  null;
 
 // Initialize speech recognition
+// -------------------------------
+// 🗣️ From speech.js: Speech recognition setup and result handling
+// -------------------------------
 let recognition;
 if ('webkitSpeechRecognition' in window) {
   recognition = new webkitSpeechRecognition();
@@ -53,6 +59,7 @@ recognition.onresult = async (event) => {
   // One-time wake-up: user says 'sara'
   if (!saraIsAwake && userInput.includes("sara")) {
     saraIsAwake = true;
+    currentConversationId = `conv-${Date.now()}`;
     statusEl.textContent = "Status: Sara is now active";
     await respond(finalTranscript);
     return;
@@ -64,6 +71,9 @@ recognition.onresult = async (event) => {
   }
 };
 
+// -------------------------------
+// 💬 From respond.js: Handle a conversation turn and GPT reply
+// -------------------------------
 // Handle a conversation turn: send user + history to GPT, speak response, then resume listening
 async function respond(text) {
   recognition.stop();
@@ -104,7 +114,11 @@ async function respond(text) {
       await fetch("http://localhost:3001/api/memory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "user", snippet: memory })
+        body: JSON.stringify({
+          role: "user",
+          snippet: memory,
+          source: currentConversationId || `conv-${Date.now()}`
+        })
       });
     } catch (err) {
       logError("Memory POST", err);
@@ -122,11 +136,18 @@ async function respond(text) {
 
   // When done speaking, resume recognition
   utterance.onend = () => {
-    statusEl.textContent = "Status: Sara is listening...";
-    recognition.start();
+    if (autoRestart) {
+      statusEl.textContent = "Status: Sara is listening...";
+      recognition.start();
+    } else {
+      statusEl.textContent = "Status: Sara is stopped.";
+    }
   };
 }
 
+// -------------------------------
+// 🧠 From memory.js: Conversation memory and key memory extraction
+// -------------------------------
 async function extractKeyMemory(userInput, gptReply) {
   const messages = [
     {
@@ -172,6 +193,9 @@ async function extractKeyMemory(userInput, gptReply) {
   return kmData.choices[0].message.content.trim();
 }
 
+// -------------------------------
+// 🧠 From memory.js: Conversation memory and key memory extraction
+// -------------------------------
 // Controls for buttons
 async function stopListening() {
   recognition.stop();
@@ -254,7 +278,13 @@ Wenn nichts wichtig ist: „IGNORIEREN“.
         await fetch("http://localhost:3001/api/memory", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(entry)
+          body: JSON.stringify({
+            role:     "user",
+            snippet:  entry.content,
+            category: entry.category,
+            source:   entry.source || currentConversationId || `conv-${Date.now()}`,
+            language: entry.language
+          })
         });
       } catch (err) {
         logError("Memory POST (summary)", err);
@@ -265,15 +295,26 @@ Wenn nichts wichtig ist: „IGNORIEREN“.
   }
 }
 
+// -------------------------------
+// 🚀 From main.js: Application entry point and control flow
+// -------------------------------
 function startListening() {
   currentConversationId = `conv-${Date.now()}`;
+  autoRestart = true;               // ← allow restart
   recognition.start();
 }
+// -------------------------------
+// 🚀 From main.js: Application entry point and control flow
+// -------------------------------
 function stopSpeaking() {
+  autoRestart = false;              // ← prevent any restart
   window.speechSynthesis.cancel();
   statusEl.textContent = "Status: Sara silenced.";
 }
 
+// -------------------------------
+// 📝 From logging.js: Logging conversation data to DB
+// -------------------------------
 // Conversation logging to DB
 function logConversation(userInput, saraReply) {
   const timestamp = new Date().toISOString();

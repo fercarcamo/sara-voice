@@ -3,36 +3,39 @@
 
 <!DOCTYPE html>
 <html lang="de">
-<head>
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sara spricht mit dir</title>
-  
-    <!-- Google Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand&display=swap" rel="stylesheet">
-  
-    <!-- CSS Datei -->
-    <link rel="stylesheet" href="style/style.css">
-  
-    <!-- js files. config.js always first -->
-    <script src="config.js"></script>
-    
-    <script src="scripts/sara.js" defer></script>
 
-  </head>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="favicon.ico" />
+  <title>Sara spricht mit dir</title>
+
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand&display=swap" rel="stylesheet">
+
+  <!-- Style -->
+  <link rel="stylesheet" href="style/style.css">
+
+  <!-- Konfiguration -->
+  <script src="config.js"></script>
+
+  <!-- Hauptlogik: Sara hört zu, denkt, spricht -->
+  <script type="module" src="main.js"></script>
 </head>
+
 <body>
   <h1>Hallo, ich bin Sara 👋</h1>
   <p>Sprich einfach mit mir – ich höre zu, wenn du meinen Namen sagst!</p>
 
+  <!-- Bedienung -->
   <button onclick="startListening()">🎙️ Sprachaufnahme starten</button>
   <button onclick="stopListening()">🛑 Sprachaufnahme stoppen</button>
   <button onclick="stopSpeaking()">🤫 Shut up Sara</button>
 
+  <!-- Statusanzeige -->
   <p id="status">Status: Nicht aktiv</p>
   <p><strong>Du sagst:</strong> <span id="transcript"></span></p>
   <p><strong>Sara antwortet:</strong> <span id="response"></span></p>
-  
-  </body>
+</body>
+
 </html>
